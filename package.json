@@ -13,6 +13,7 @@
     "dotenv": "^17.0.1",
     "googleapis": "^150.0.1",
     "next": "^15.3.5",
+    "nodemailer": "^7.0.4",
     "openai": "^4.103.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
