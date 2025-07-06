@@ -12,10 +12,11 @@
     "@pinecone-database/pinecone": "^6.0.1",
     "dotenv": "^17.0.1",
     "googleapis": "^150.0.1",
-    "next": "15.1.8",
+    "next": "^15.3.5",
     "openai": "^4.103.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "postcss": "^8",
