@@ -1,34 +1,37 @@
 require('dotenv').config();
 import { OpenAI } from 'openai';
 import { google } from 'googleapis';
+import crypto from 'crypto'; // for uuid fallback
 import { getEmbedding, similaritySearch } from '../../utils/vector-utils';
 
-// --- OpenAI ---
+/**
+ * ────────────────────────────────────────────────────────────────
+ *  OPENAI
+ * ────────────────────────────────────────────────────────────────
+ */
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// --- Google Sheets ---
-const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID; // Set in Vercel env
+/**
+ * ────────────────────────────────────────────────────────────────
+ *  GOOGLE SHEETS CONFIG
+ * ────────────────────────────────────────────────────────────────
+ */
+const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID; // Vercel env var
 const SHEET_NAME = 'Chat Log';
 
+// Validate required env vars early
+['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_SHEET_ID'].forEach(v => {
+  if (!process.env[v]) throw new Error(`${v} environment variable is missing`);
+});
+
+// Build Google auth client (replace escaped \n with real new‑lines)
 let googleAuth;
 try {
-  // Validate required env vars
-  if (!process.env.GOOGLE_CLIENT_EMAIL) {
-    throw new Error('GOOGLE_CLIENT_EMAIL environment variable is missing');
-  }
-  if (!process.env.GOOGLE_PRIVATE_KEY) {
-    throw new Error('GOOGLE_PRIVATE_KEY environment variable is missing');
-  }
-  if (!SPREADSHEET_ID) {
-    throw new Error('GOOGLE_SHEET_ID environment variable is missing');
-  }
-
   googleAuth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_CLIENT_EMAIL,
-      // Replace escaped \n with real new‑lines so Google can read the key
       private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
     },
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -37,19 +40,34 @@ try {
   console.error('Failed to initialize Google Auth:', err.message);
 }
 
+/**
+ * Append a row to Google Sheets
+ * Columns:
+ *  A Timestamp          (ISO string)
+ *  B Session ID         (UUID per browser session)
+ *  C User Question
+ *  D Bot Response
+ *  E Context            (KB snippets used)
+ *  F Page URL           (Shopify page)
+ *  G IP Address
+ *  H Usergit‑Agent         (browser/device)
+ *  I Prompt Tokens      (upload)
+ *  J Completion Tokens  (download)
+ *  K Total Tokens
+ *  L Confidence Score   (simple heuristic / similarity)
+ */
 async function appendToSheet(valuesArray) {
   if (!googleAuth) {
     console.warn('Google Auth not initialized, skipping sheet append');
     return;
   }
-
   try {
     const authClient = await googleAuth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:F`,
+      range: `${SHEET_NAME}!A:L`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [valuesArray] },
     });
@@ -59,29 +77,26 @@ async function appendToSheet(valuesArray) {
   }
 }
 
+/**
+ * API Route Handler
+ */
 export default async function handler(req, res) {
-  const { query, pageURL } = req.body;
+  const { query, pageURL, sessionId: clientSessionId } = req.body || {};
   const userIP =
     req.headers['x-forwarded-for']?.split(',')[0] ||
     req.socket?.remoteAddress ||
     'Unknown';
+  const userAgent = req.headers['user-agent'] || 'Unknown';
+  const sessionId = clientSessionId || crypto.randomUUID();
 
-  console.log('Received query:', query);
-  console.log('Page URL:', pageURL);
-  console.log('User IP:', userIP);
-
-  if (!query) {
-    console.log('Missing query');
-    return res.status(400).json({ error: 'Missing query' });
-  }
+  if (!query) return res.status(400).json({ error: 'Missing query' });
 
   try {
+    // 1️⃣ Vector search
     const queryEmbedding = await getEmbedding(query);
-    console.log('Got query embedding');
+    const docs = await similaritySearch(queryEmbedding, 4); // docs = [{ metadata, score? }]
 
-    const docs = await similaritySearch(queryEmbedding, 4);
-    console.log('Got docs');
-
+    // 2️⃣ Build prompt & complete
     const context = docs.map(d => d.metadata.text).join('\n\n');
     const prompt =
       `You are a helpful support agent for Blated. Use only the provided context.\n\n` +
@@ -92,25 +107,37 @@ export default async function handler(req, res) {
       messages: [
         {
           role: 'system',
-          content: 'Answer clearly, concisely, and only with the provided context.',
+          content:
+            'Answer clearly, concisely, and only with the provided context.',
         },
         { role: 'user', content: prompt },
       ],
     });
 
     const answer = completion.choices[0].message.content;
-    console.log('Got completion');
+    const { prompt_tokens, completion_tokens, total_tokens } =
+      completion.usage || {};
 
+    // 3️⃣ Simple "confidence" heuristic: highest similarity score of returned docs
+    const confidenceScore = docs.length && docs[0].score !== undefined ? docs[0].score : '';
+
+    // 4️⃣ Persist to Google Sheets
     await appendToSheet([
-      new Date().toISOString(),
-      query,
-      answer,
-      context,
-      pageURL || 'Unknown',
-      userIP,
+      new Date().toISOString(), // Timestamp
+      sessionId, // Session ID
+      query, // User Question
+      answer, // Bot Response
+      context, // Context snippets
+      pageURL || 'Unknown', // Page URL
+      userIP, // IP
+      userAgent, // UA
+      prompt_tokens || '', // Prompt tokens (upload)
+      completion_tokens || '', // Completion tokens (download)
+      total_tokens || '', // Total tokens
+      confidenceScore, // Heuristic confidence
     ]);
 
-    res.json({ answer });
+    res.json({ answer, sessionId, total_tokens });
   } catch (err) {
     console.error('Handler error:', err.message);
     res.status(500).json({ error: 'Internal error' });
