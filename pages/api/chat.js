@@ -10,21 +10,38 @@ const openai = new OpenAI({
 const SPREADSHEET_ID = '1OZZkYXJMadLMrHddVuCLdsOTWRSNCq2jVYODiVZVyrs';
 const SHEET_NAME = 'Chat Log';
 
-const googleAuth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+let googleAuth;
+try {
+  if (!process.env.GOOGLE_CREDENTIALS_JSON) {
+    throw new Error('GOOGLE_CREDENTIALS_JSON environment variable is missing');
+  }
+  googleAuth = new google.auth.GoogleAuth({
+    credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+} catch (err) {
+  console.error('Failed to initialize Google Auth:', err.message);
+}
 
 async function appendToSheet(valuesArray) {
-  const authClient = await googleAuth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: authClient });
+  if (!googleAuth) {
+    console.warn('Google Auth not initialized, skipping sheet append');
+    return;
+  }
+  try {
+    const authClient = await googleAuth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A:F`, // Now logging 6 columns (A-F)
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [valuesArray] },
-  });
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:F`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [valuesArray] },
+    });
+    console.log('Logged to Google Sheets');
+  } catch (err) {
+    console.error('Error appending to Google Sheet:', err.message);
+  }
 }
 
 export default async function handler(req, res) {
@@ -34,21 +51,21 @@ export default async function handler(req, res) {
     req.socket?.remoteAddress ||
     'Unknown';
 
-  console.log("Received query:", query);
-  console.log("Page URL:", pageURL);
-  console.log("User IP:", userIP);
+  console.log('Received query:', query);
+  console.log('Page URL:', pageURL);
+  console.log('User IP:', userIP);
 
   if (!query) {
-    console.log("Missing query");
+    console.log('Missing query');
     return res.status(400).json({ error: 'Missing query' });
   }
 
   try {
     const queryEmbedding = await getEmbedding(query);
-    console.log("Got query embedding");
+    console.log('Got query embedding');
 
     const docs = await similaritySearch(queryEmbedding, 4);
-    console.log("Got docs");
+    console.log('Got docs');
 
     const context = docs.map(d => d.metadata.text).join('\n\n');
     const prompt =
@@ -64,7 +81,7 @@ export default async function handler(req, res) {
     });
 
     const answer = completion.choices[0].message.content;
-    console.log("Got completion");
+    console.log('Got completion');
 
     await appendToSheet([
       new Date().toISOString(),
@@ -72,13 +89,12 @@ export default async function handler(req, res) {
       answer,
       context,
       pageURL || 'Unknown',
-      userIP
+      userIP,
     ]);
-    console.log("Logged to Google Sheets");
 
     res.json({ answer });
   } catch (err) {
-    console.error("Handler error:", err);
+    console.error('Handler error:', err.message);
     res.status(500).json({ error: 'Internal error' });
   }
 }
