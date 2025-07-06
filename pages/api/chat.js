@@ -34,15 +34,23 @@ export default async function handler(req, res) {
     req.socket?.remoteAddress ||
     'Unknown';
 
+  console.log("Received query:", query);
+  console.log("Page URL:", pageURL);
+  console.log("User IP:", userIP);
+
   if (!query) {
+    console.log("Missing query");
     return res.status(400).json({ error: 'Missing query' });
   }
 
   try {
     const queryEmbedding = await getEmbedding(query);
-    const docs = await similaritySearch(queryEmbedding, 4);
-    const context = docs.map(d => d.metadata.text).join('\n\n');
+    console.log("Got query embedding");
 
+    const docs = await similaritySearch(queryEmbedding, 4);
+    console.log("Got docs");
+
+    const context = docs.map(d => d.metadata.text).join('\n\n');
     const prompt =
       `You are a helpful support agent for Blated. Use only the provided context.\n\n` +
       `CONTEXT:\n${context}\n\nQUESTION: ${query}`;
@@ -56,20 +64,21 @@ export default async function handler(req, res) {
     });
 
     const answer = completion.choices[0].message.content;
+    console.log("Got completion");
 
-    // Log to Google Sheet with pageURL and IP
     await appendToSheet([
-      new Date().toISOString(), // Timestamp
-      query,                    // User Question
-      answer,                   // Bot Answer
-      context,                  // Retrieved Context
-      pageURL || 'Unknown',     // Page URL (optional)
-      userIP                    // User IP Address
+      new Date().toISOString(),
+      query,
+      answer,
+      context,
+      pageURL || 'Unknown',
+      userIP
     ]);
+    console.log("Logged to Google Sheets");
 
     res.json({ answer });
   } catch (err) {
-    console.error(err);
+    console.error("Handler error:", err);
     res.status(500).json({ error: 'Internal error' });
   }
 }
