@@ -1,38 +1,72 @@
-import { useState } from 'react';
+// pages/index.js or pages/chat.js
+import { useEffect, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 
-export default function Chat() {
+export default function ChatbotPage() {
   const [input, setInput] = useState('');
-  const [response, setResponse] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [chatLog, setChatLog] = useState([]);
+  const [sessionId, setSessionId] = useState('');
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  useEffect(() => {
+    const savedSession = localStorage.getItem('chatbotSessionId') || uuidv4();
+    localStorage.setItem('chatbotSessionId', savedSession);
+    setSessionId(savedSession);
+
+    const savedHistory = JSON.parse(localStorage.getItem('chatbotHistory') || '[]');
+    setChatLog(savedHistory);
+  }, []);
+
+  const handleSend = async () => {
+    if (!input.trim()) return;
+
+    const updatedHistory = [...chatLog, { role: 'user', content: input }];
+    setChatLog(updatedHistory);
+
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: input }),
-    });
-    const data = await res.json();
-    setResponse(data.answer);
-    setLoading(false);
+      body: JSON.stringify({
+        query: input,
+        pageURL: location.href,
+        sessionId,
+        history: updatedHistory,
+      }),
+    }).then(r => r.json());
+
+    const fullLog = [...updatedHistory, { role: 'assistant', content: res.answer }];
+    setChatLog(fullLog);
+    localStorage.setItem('chatbotHistory', JSON.stringify(fullLog));
+    setInput('');
+  };
+
+  const handleReset = () => {
+    localStorage.removeItem('chatbotSessionId');
+    localStorage.removeItem('chatbotHistory');
+    setChatLog([]);
+    setInput('');
+    location.reload();
   };
 
   return (
-    <main className="p-4 max-w-xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Blated Support Chat</h1>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-        <textarea value={input} onChange={e => setInput(e.target.value)} rows={4} className="p-2 border" />
-        <button disabled={loading} className="bg-black text-white px-4 py-2">
-          {loading ? 'Thinking...' : 'Ask'}
-        </button>
-      </form>
-      {response && (
-        <div className="mt-4 p-4 border bg-gray-50">
-          <strong>Answer:</strong>
-          <p>{response}</p>
-        </div>
-      )}
-    </main>
+    <div style={{ padding: '2rem', fontFamily: 'sans-serif', maxWidth: 600, margin: '0 auto' }}>
+      <h1>BlateCo Chatbot</h1>
+      <div style={{ marginBottom: '1rem' }}>
+        {chatLog.map((msg, idx) => (
+          <p key={idx}>
+            <strong>{msg.role === 'user' ? 'You' : 'Bot'}:</strong> {msg.content}
+          </p>
+        ))}
+      </div>
+
+      <textarea
+        rows={3}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="Ask a question..."
+        style={{ width: '100%', padding: '0.5rem' }}
+      />
+      <button onClick={handleSend} style={{ marginTop: '0.5rem', marginRight: '1rem' }}>Send</button>
+      <button onClick={handleReset} style={{ marginTop: '0.5rem' }}>Reset Chat</button>
+    </div>
   );
 }
