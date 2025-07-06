@@ -1,21 +1,51 @@
 require('dotenv').config();
 import { OpenAI } from 'openai';
+import { google } from 'googleapis';
 import { getEmbedding, similaritySearch } from '../../utils/vector-utils';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const SPREADSHEET_ID = '1OZZkYXJMadLMrHddVuCLdsOTWRSNCq2jVYODiVZVyrs';
+const SHEET_NAME = 'Chat Log';
+
+const googleAuth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+
+async function appendToSheet(valuesArray) {
+  const authClient = await googleAuth.getClient();
+  const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${SHEET_NAME}!A:F`, // Now logging 6 columns (A-F)
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [valuesArray] },
+  });
+}
+
 export default async function handler(req, res) {
-  const { query } = req.body;
-  if (!query) return res.status(400).json({ error: 'Missing query' });
+  const { query, pageURL } = req.body;
+  const userIP =
+    req.headers['x-forwarded-for']?.split(',')[0] ||
+    req.socket?.remoteAddress ||
+    'Unknown';
+
+  if (!query) {
+    return res.status(400).json({ error: 'Missing query' });
+  }
 
   try {
     const queryEmbedding = await getEmbedding(query);
     const docs = await similaritySearch(queryEmbedding, 4);
-
     const context = docs.map(d => d.metadata.text).join('\n\n');
-    const prompt = `You are a helpful support agent for BlateCo. Use only the provided context.\n\nCONTEXT:\n${context}\n\nQUESTION: ${query}`;
+
+    const prompt =
+      `You are a helpful support agent for Blated. Use only the provided context.\n\n` +
+      `CONTEXT:\n${context}\n\nQUESTION: ${query}`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -25,7 +55,19 @@ export default async function handler(req, res) {
       ],
     });
 
-    res.json({ answer: completion.choices[0].message.content });
+    const answer = completion.choices[0].message.content;
+
+    // Log to Google Sheet with pageURL and IP
+    await appendToSheet([
+      new Date().toISOString(), // Timestamp
+      query,                    // User Question
+      answer,                   // Bot Answer
+      context,                  // Retrieved Context
+      pageURL || 'Unknown',     // Page URL (optional)
+      userIP                    // User IP Address
+    ]);
+
+    res.json({ answer });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal error' });

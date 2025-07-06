@@ -20,7 +20,7 @@ export default function Chat() {
 
   return (
     <main className="p-4 max-w-xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">BlateCo AI Chat</h1>
+      <h1 className="text-2xl font-bold mb-4">Blated Support Chat</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
         <textarea value={input} onChange={e => setInput(e.target.value)} rows={4} className="p-2 border" />
         <button disabled={loading} className="bg-black text-white px-4 py-2">
