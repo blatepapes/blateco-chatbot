@@ -3,20 +3,34 @@ import { OpenAI } from 'openai';
 import { google } from 'googleapis';
 import { getEmbedding, similaritySearch } from '../../utils/vector-utils';
 
+// --- OpenAI ---
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const SPREADSHEET_ID = '1OZZkYXJMadLMrHddVuCLdsOTWRSNCq2jVYODiVZVyrs';
+// --- Google Sheets ---
+const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID; // Set in Vercel env
 const SHEET_NAME = 'Chat Log';
 
 let googleAuth;
 try {
-  if (!process.env.GOOGLE_CREDENTIALS_JSON) {
-    throw new Error('GOOGLE_CREDENTIALS_JSON environment variable is missing');
+  // Validate required env vars
+  if (!process.env.GOOGLE_CLIENT_EMAIL) {
+    throw new Error('GOOGLE_CLIENT_EMAIL environment variable is missing');
   }
+  if (!process.env.GOOGLE_PRIVATE_KEY) {
+    throw new Error('GOOGLE_PRIVATE_KEY environment variable is missing');
+  }
+  if (!SPREADSHEET_ID) {
+    throw new Error('GOOGLE_SHEET_ID environment variable is missing');
+  }
+
   googleAuth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
+    credentials: {
+      client_email: process.env.GOOGLE_CLIENT_EMAIL,
+      // Replace escaped \n with real new‑lines so Google can read the key
+      private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    },
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 } catch (err) {
@@ -28,6 +42,7 @@ async function appendToSheet(valuesArray) {
     console.warn('Google Auth not initialized, skipping sheet append');
     return;
   }
+
   try {
     const authClient = await googleAuth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: authClient });
@@ -75,7 +90,10 @@ export default async function handler(req, res) {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
-        { role: 'system', content: 'Answer clearly, concisely, and only with the provided context.' },
+        {
+          role: 'system',
+          content: 'Answer clearly, concisely, and only with the provided context.',
+        },
         { role: 'user', content: prompt },
       ],
     });
