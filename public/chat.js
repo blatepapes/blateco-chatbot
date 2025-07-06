@@ -44,7 +44,7 @@
     sendButton.classList.remove('active');
 
     try {
-      const response = await fetch('https://your-vercel-domain.com/api/chat', {
+      const response = await fetch('https://blateco-chatbot.vercel.app/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
