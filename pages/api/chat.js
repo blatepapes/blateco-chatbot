@@ -10,7 +10,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SHEET_NAME = 'Chat Log';
 const TOP_K = 4;
-const MIN_SCORE = 0.75;
+const MIN_SCORE = 0.4;
 const MAX_CONTEXT_TOKENS = 800;
 
 ['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_SHEET_ID'].forEach(v => {
