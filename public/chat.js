@@ -3,11 +3,11 @@
   localStorage.setItem('chatbotSessionId', sessionId);
   let chatHistory = JSON.parse(localStorage.getItem('chatbotHistory') || '[]');
 
-  const bubble = document.querySelector('.chat-bubble');
-  const windowEl = document.querySelector('.chat-window');
-  const input = document.querySelector('.chat-input');
+  const bubble     = document.querySelector('.chat-bubble');
+  const windowEl   = document.querySelector('.chat-window');
+  const input      = document.querySelector('.chat-input');
   const sendButton = document.querySelector('.chat-send');
-  const chatBody = document.querySelector('.chat-body');
+  const chatBody   = document.querySelector('.chat-body');
 
   if (chatHistory.length === 0) {
     appendMessage('bot', 'Hi there 👋! Let me know if you have any questions at all!');
@@ -50,15 +50,12 @@
         sessionId,
         history: chatHistory.slice(-10)
       };
-      console.log('Sending payload:', payload);
       const response = await fetch('https://blateco-chatbot.vercel.app/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      console.log('Response status:', response.status);
       const data = await response.json();
-      console.log('API response:', data);
       if (data.error) throw new Error(data.error);
       appendMessage('bot', data.answer);
       chatHistory.push({ role: 'assistant', content: data.answer });
@@ -72,73 +69,75 @@
   }
 
   function appendMessage(role, content) {
-    const message = document.createElement('div');
+    const message    = document.createElement('div');
     message.className = `message ${role}`;
     message.innerHTML = formatMessage(content);
     chatBody.appendChild(message);
   }
 
+  /* ---------- Updated Markdown-aware formatter ---------- */
   function formatMessage(content) {
-    // Escape HTML to prevent XSS
-    const escapeHTML = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Basic HTML escape to prevent XSS
+    const escapeHTML = (str) =>
+      str.replace(/&/g, '&amp;')
+         .replace(/</g, '&lt;')
+         .replace(/>/g, '&gt;');
 
-    // Split content by lines
-    const lines = content.split('\n');
-    let html = '';
-    let inList = false;
-    let listType = 'ul';
+    // Inline markdown (bold, italic, more later if needed)
+    const renderInline = (str) => {
+      let safe = escapeHTML(str);
+      // **bold**
+      safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      // *italic* or _italic_
+      safe = safe.replace(/(\*|_)(.+?)\1/g, '<em>$2</em>');
+      return safe;
+    };
+
+    const lines   = content.split('\n');
+    let html      = '';
+    let inList    = false;
+    let listType  = 'ul';
 
     lines.forEach(line => {
-      const trimmedLine = line.trim();
+      const trimmed = line.trim();
 
-      // Handle bullet points (-, *, •) and numbered lists (1., 1-)
-      if (trimmedLine.match(/^[-*•]\s+/) || trimmedLine.match(/^\d+\.\s+/) || trimmedLine.match(/^\d+-\s+/)) {
-        const isNumbered = trimmedLine.match(/^\d+\.\s+/) || trimmedLine.match(/^\d+-\s+/);
+      // Bullet or numbered list?
+      if (/^[-*•]\s+/.test(trimmed) || /^\d+[\.\-]\s+/.test(trimmed)) {
+        const isNumbered = /^\d+[\.\-]\s+/.test(trimmed);
         if (!inList) {
           listType = isNumbered ? 'ol' : 'ul';
           html += `<${listType}>`;
           inList = true;
         }
-        const itemContent = trimmedLine.replace(/^[-*•]\s+|^(\d+\.\s+)|^\d+-\s+/, '');
-        html += `<li>${escapeHTML(itemContent)}</li>`;
+        const itemContent = trimmed.replace(/^[-*•]\s+|^\d+[\.\-]\s+/, '');
+        html += `<li>${renderInline(itemContent)}</li>`;
       }
-      // Handle headings (# Heading, ## Heading)
-      else if (trimmedLine.match(/^#{1,3}\s+/)) {
+      // Markdown headings (#, ##, ###)
+      else if (/^#{1,3}\s+/.test(trimmed)) {
         if (inList) {
           html += `</${listType}>`;
           inList = false;
         }
-        const level = trimmedLine.match(/^#+/)[0].length;
-        const headingContent = trimmedLine.replace(/^#{1,3}\s+/, '');
-        html += `<h${level}>${escapeHTML(headingContent)}</h${level}>`;
+        const level = trimmed.match(/^#+/)[0].length;
+        const headingContent = trimmed.replace(/^#{1,3}\s+/, '');
+        html += `<h${level}>${renderInline(headingContent)}</h${level}>`;
       }
-      // Handle bold (**text**)
-      else if (trimmedLine.match(/\*\*.*\*\*/)) {
+      // Regular paragraph (includes inline bold/italic)
+      else if (trimmed) {
         if (inList) {
           html += `</${listType}>`;
           inList = false;
         }
-        const boldContent = trimmedLine.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        html += `<p>${boldContent}</p>`;
-      }
-      // Handle regular lines
-      else {
-        if (inList) {
-          html += `</${listType}>`;
-          inList = false;
-        }
-        if (trimmedLine) {
-          html += `<p>${escapeHTML(trimmedLine)}</p>`;
-        }
+        html += `<p>${renderInline(trimmed)}</p>`;
       }
     });
 
-    if (inList) {
-      html += `</${listType}>`;
-    }
+    if (inList) html += `</${listType}>`;
 
-    return html || `<p>${escapeHTML(content)}</p>`;
+    // Fallback for completely empty content
+    return html || `<p>${renderInline(content)}</p>`;
   }
+  /* ------------------------------------------------------ */
 
   function resetChat() {
     localStorage.removeItem('chatbotSessionId');
