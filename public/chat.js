@@ -44,18 +44,21 @@
     sendButton.classList.remove('active');
 
     try {
+      const payload = {
+        query,
+        pageURL: window.location.href,
+        sessionId,
+        history: chatHistory.slice(-10)
+      };
+      console.log('Sending payload:', payload);
       const response = await fetch('https://blateco-chatbot.vercel.app/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query,
-          pageURL: window.location.href,
-          sessionId,
-          history: chatHistory.slice(-10)
-        })
+        body: JSON.stringify(payload)
       });
+      console.log('Response status:', response.status);
       const data = await response.json();
-
+      console.log('API response:', data);
       if (data.error) throw new Error(data.error);
       appendMessage('bot', data.answer);
       chatHistory.push({ role: 'assistant', content: data.answer });
@@ -71,8 +74,70 @@
   function appendMessage(role, content) {
     const message = document.createElement('div');
     message.className = `message ${role}`;
-    message.textContent = content;
+    message.innerHTML = formatMessage(content);
     chatBody.appendChild(message);
+  }
+
+  function formatMessage(content) {
+    // Escape HTML to prevent XSS
+    const escapeHTML = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Split content by lines
+    const lines = content.split('\n');
+    let html = '';
+    let inList = false;
+    let listType = 'ul';
+
+    lines.forEach(line => {
+      const trimmedLine = line.trim();
+
+      // Handle bullet points (-, *, •) and numbered lists (1., 1-)
+      if (trimmedLine.match(/^[-*•]\s+/) || trimmedLine.match(/^\d+\.\s+/) || trimmedLine.match(/^\d+-\s+/)) {
+        const isNumbered = trimmedLine.match(/^\d+\.\s+/) || trimmedLine.match(/^\d+-\s+/);
+        if (!inList) {
+          listType = isNumbered ? 'ol' : 'ul';
+          html += `<${listType}>`;
+          inList = true;
+        }
+        const itemContent = trimmedLine.replace(/^[-*•]\s+|^(\d+\.\s+)|^\d+-\s+/, '');
+        html += `<li>${escapeHTML(itemContent)}</li>`;
+      }
+      // Handle headings (# Heading, ## Heading)
+      else if (trimmedLine.match(/^#{1,3}\s+/)) {
+        if (inList) {
+          html += `</${listType}>`;
+          inList = false;
+        }
+        const level = trimmedLine.match(/^#+/)[0].length;
+        const headingContent = trimmedLine.replace(/^#{1,3}\s+/, '');
+        html += `<h${level}>${escapeHTML(headingContent)}</h${level}>`;
+      }
+      // Handle bold (**text**)
+      else if (trimmedLine.match(/\*\*.*\*\*/)) {
+        if (inList) {
+          html += `</${listType}>`;
+          inList = false;
+        }
+        const boldContent = trimmedLine.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        html += `<p>${boldContent}</p>`;
+      }
+      // Handle regular lines
+      else {
+        if (inList) {
+          html += `</${listType}>`;
+          inList = false;
+        }
+        if (trimmedLine) {
+          html += `<p>${escapeHTML(trimmedLine)}</p>`;
+        }
+      }
+    });
+
+    if (inList) {
+      html += `</${listType}>`;
+    }
+
+    return html || `<p>${escapeHTML(content)}</p>`;
   }
 
   function resetChat() {
