@@ -9,7 +9,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SHEET_NAME = 'Chat Log';
-const TOP_K = 4;
+const TOP_K = 5;
 const MIN_SCORE = 0.4;
 const MAX_CONTEXT_TOKENS = 800;
 
@@ -80,46 +80,14 @@ export default async function handler(req, res) {
 
   try {
     const queryEmbedding = await getEmbedding(query);
+    const matches = await similaritySearch(queryEmbedding, TOP_K);
+    const strongMatches = matches.filter(m => m.score >= MIN_SCORE).slice(0, TOP_K);
 
-    // Search FAQ entries first
-    let matches = await similaritySearch(queryEmbedding, TOP_K, { type: 'faq' });
+    const faqMatch = strongMatches.find(m => m.metadata?.type === 'faq');
+    const contextMatches = faqMatch ? [faqMatch] : strongMatches;
 
-    let strongMatches = matches
-      .filter(m => m.score >= MIN_SCORE)
-      .map(m => ({
-        ...m,
-        priority: m.metadata?.priority || 1,
-        weightedScore: m.score * (m.metadata?.priority || 1),
-      }))
-      .sort((a, b) => b.weightedScore - a.weightedScore)
-      .slice(0, TOP_K);
-
-    // If no strong FAQ matches, fall back to article content
-    if (strongMatches.length === 0) {
-      matches = await similaritySearch(queryEmbedding, TOP_K, { type: 'article' });
-      strongMatches = matches
-        .filter(m => m.score >= MIN_SCORE)
-        .map(m => ({
-          ...m,
-          priority: m.metadata?.priority || 1,
-          weightedScore: m.score * (m.metadata?.priority || 1),
-        }))
-        .sort((a, b) => b.weightedScore - a.weightedScore)
-        .slice(0, TOP_K);
-    }
-
-    const context = truncateContext(
-      strongMatches.map(m => {
-        const meta = m.metadata || {};
-        if (meta.type === 'faq' && meta.question && meta.answer) {
-          return `Q: ${meta.question}\nA: ${meta.answer}`;
-        }
-        return meta.text || '';
-      }).join('\n\n'),
-      MAX_CONTEXT_TOKENS
-    );
-
-    const confidenceScore = strongMatches[0]?.score ?? '';
+    const context = truncateContext(contextMatches.map(m => m.metadata.text).join('\n\n'), MAX_CONTEXT_TOKENS);
+    const confidenceScore = contextMatches[0]?.score ?? '';
 
     const escalationRules = `You are a friendly Blated customer service associate. Format all responses for maximum readability:
 - Use bullet points with a dash (- Item) for lists.
@@ -180,4 +148,3 @@ Escalation protocol:
     res.status(500).json({ error: 'Internal server error' });
   }
 }
-

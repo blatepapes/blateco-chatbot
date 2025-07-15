@@ -7,35 +7,32 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 const index = pinecone.index('blateco-support');
 
-// Load Q&A from JSON file
+// Load existing FAQ vector file
 const data = JSON.parse(fs.readFileSync('./faq.json', 'utf-8'));
 
 async function upload() {
   for (let i = 0; i < data.length; i++) {
-    const { question, answer } = data[i]?.fields || {};
+    const entry = data[i];
+    const { id, embedding, metadata } = entry;
+    const question = metadata?.question?.trim();
+    const answer = metadata?.answer?.trim();
 
-    if (!question || !answer) {
-      console.warn(`⚠️ Skipping entry at index ${i} - Missing question or answer`, data[i]);
+    if (!question || !answer || !embedding) {
+      console.warn(`⚠️ Skipping entry at index ${i} - Missing question, answer, or embedding`, entry);
       continue;
     }
 
     try {
-      const input = `Q: ${question}\nA: ${answer}`;
-      const embedding = await openai.embeddings.create({
-        model: 'text-embedding-3-small',
-        input,
-      });
-
       await index.upsert([
         {
-          id: `faq-${i}`,
-          values: embedding.data[0].embedding,
+          id: id || `faq-${i}`,
+          values: embedding,
           metadata: {
             question,
             answer,
             type: 'faq',
             priority: 10,
-            text: input,
+            text: `Q: ${question}\nA: ${answer}`,
           },
         },
       ]);
