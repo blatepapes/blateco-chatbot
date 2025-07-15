@@ -64,21 +64,14 @@ function truncateContext(str, maxTokens) {
 }
 
 export default async function handler(req, res) {
-  // Handle CORS preflight request
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { query, pageURL, sessionId: clientSessionId, history = [] } = req.body || {};
-
   if (!query) return res.status(400).json({ error: 'Missing query' });
 
   const sessionId = clientSessionId || crypto.randomUUID();
@@ -87,12 +80,48 @@ export default async function handler(req, res) {
 
   try {
     const queryEmbedding = await getEmbedding(query);
-    const matches = await similaritySearch(queryEmbedding, TOP_K);
-    const strongMatches = matches.filter(m => m.score >= MIN_SCORE).slice(0, TOP_K);
-    const context = truncateContext(strongMatches.map(m => m.metadata.text).join('\n\n'), MAX_CONTEXT_TOKENS);
+
+    // Search FAQ entries first
+    let matches = await similaritySearch(queryEmbedding, TOP_K, { type: 'faq' });
+
+    let strongMatches = matches
+      .filter(m => m.score >= MIN_SCORE)
+      .map(m => ({
+        ...m,
+        priority: m.metadata?.priority || 1,
+        weightedScore: m.score * (m.metadata?.priority || 1),
+      }))
+      .sort((a, b) => b.weightedScore - a.weightedScore)
+      .slice(0, TOP_K);
+
+    // If no strong FAQ matches, fall back to article content
+    if (strongMatches.length === 0) {
+      matches = await similaritySearch(queryEmbedding, TOP_K, { type: 'article' });
+      strongMatches = matches
+        .filter(m => m.score >= MIN_SCORE)
+        .map(m => ({
+          ...m,
+          priority: m.metadata?.priority || 1,
+          weightedScore: m.score * (m.metadata?.priority || 1),
+        }))
+        .sort((a, b) => b.weightedScore - a.weightedScore)
+        .slice(0, TOP_K);
+    }
+
+    const context = truncateContext(
+      strongMatches.map(m => {
+        const meta = m.metadata || {};
+        if (meta.type === 'faq' && meta.question && meta.answer) {
+          return `Q: ${meta.question}\nA: ${meta.answer}`;
+        }
+        return meta.text || '';
+      }).join('\n\n'),
+      MAX_CONTEXT_TOKENS
+    );
+
     const confidenceScore = strongMatches[0]?.score ?? '';
 
-const escalationRules = `You are a friendly Blated customer service associate. Format all responses for maximum readability:
+    const escalationRules = `You are a friendly Blated customer service associate. Format all responses for maximum readability:
 - Use bullet points with a dash (- Item) for lists.
 - Keep paragraphs short (2-3 sentences).
 - Use bold (**text**) for emphasis.
@@ -151,3 +180,4 @@ Escalation protocol:
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+

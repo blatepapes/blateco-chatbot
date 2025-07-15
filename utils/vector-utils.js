@@ -20,13 +20,25 @@ async function getEmbedding(text) {
   return res.data[0].embedding;
 }
 
-async function similaritySearch(queryEmbedding, topK = 5) {
+async function similaritySearch(queryEmbedding, topK = 5, filter = null) {
   const result = await index.query({
     vector: queryEmbedding,
     topK,
     includeMetadata: true,
+    ...(filter && { filter }),
   });
-  return result.matches;
+
+  const scored = result.matches
+    .map((match) => {
+      const priority = match.metadata?.priority || 1;
+      return {
+        ...match,
+        weightedScore: match.score * priority,
+      };
+    })
+    .sort((a, b) => b.weightedScore - a.weightedScore);
+
+  return scored;
 }
 
 module.exports = { getEmbedding, similaritySearch };
