@@ -80,7 +80,7 @@ export default async function handler(req, res) {
   try {
     const queryEmbedding = await getEmbedding(query);
     const matches = await similaritySearch(queryEmbedding, TOP_K);
-    const contextMatches = matches.slice(0, TOP_K); // No score filtering
+    const contextMatches = matches.filter(m => m.score >= 0.6).slice(0, TOP_K);
     const context = truncateContext(contextMatches.map(m => m.metadata.text).join('\n\n'), MAX_CONTEXT_TOKENS);
     const confidenceScore = contextMatches[0]?.score ?? '';
 

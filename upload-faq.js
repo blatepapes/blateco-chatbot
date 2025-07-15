@@ -1,51 +1,46 @@
 require('dotenv').config();
 const fs = require('fs');
-const { OpenAI } = require('openai');
 const { Pinecone } = require('@pinecone-database/pinecone');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Setup Pinecone
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 const index = pinecone.index('blateco-support');
 
-// Load existing FAQ vector file
-const data = JSON.parse(fs.readFileSync('./faq.json', 'utf-8'));
+// Load your corrected Q&A vectors
+const data = JSON.parse(fs.readFileSync('./qa_vectors.json', 'utf-8')); // not faq.json anymore
 
 async function upload() {
   for (let i = 0; i < data.length; i++) {
     const entry = data[i];
     const { id, embedding, metadata } = entry;
-    const question = metadata?.question?.trim();
-    const answer = metadata?.answer?.trim();
 
-    if (!question || !answer || !embedding) {
-      console.warn(`⚠️ Skipping entry at index ${i} - Missing question, answer, or embedding`, entry);
+    if (!embedding || !metadata?.text) {
+      console.warn(`⚠️ Skipping entry ${i} - Missing embedding or text`);
       continue;
     }
 
     try {
       await index.upsert([
         {
-          id: id || `faq-${i}`,
+          id: id || `qa-${i}`,
           values: embedding,
           metadata: {
-            question,
-            answer,
+            ...metadata,
             type: 'faq',
             priority: 10,
-            text: `Q: ${question}\nA: ${answer}`,
           },
         },
       ]);
 
-      console.log(`✅ Uploaded FAQ ${i + 1}/${data.length}`);
+      console.log(`✅ Uploaded ${id || `qa-${i}`}`);
     } catch (err) {
-      console.error(`❌ Failed to upload FAQ ${i + 1}: ${err.message}`);
+      console.error(`❌ Upload failed for ${id}: ${err.message}`);
     }
   }
 
-  console.log('✅ All done.');
+  console.log('✅ All done uploading.');
 }
 
 upload().catch((err) => {
-  console.error('Fatal error during upload:', err.message);
+  console.error('❌ Fatal upload error:', err.message);
 });
