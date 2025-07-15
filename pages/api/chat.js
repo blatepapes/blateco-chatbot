@@ -79,9 +79,31 @@ export default async function handler(req, res) {
 
   try {
     const queryEmbedding = await getEmbedding(query);
-    const matches = await similaritySearch(queryEmbedding, TOP_K);
-    const contextMatches = matches.filter(m => m.score >= 0.6).slice(0, TOP_K);
-    const context = truncateContext(contextMatches.map(m => m.metadata.text).join('\n\n'), MAX_CONTEXT_TOKENS);
+    let matches = await similaritySearch(queryEmbedding, TOP_K + 5); // fetch a few extras to allow filtering
+
+    // Boost exact match score
+    matches.forEach(m => {
+      const dbQuestion = m.metadata?.question?.toLowerCase().trim();
+      const inputQuestion = query.toLowerCase().trim();
+      if (dbQuestion === inputQuestion) {
+        m.score += 0.5;
+      }
+    });
+
+    // Sort by boosted score and take top relevant ones
+    matches = matches.sort((a, b) => b.score - a.score);
+    let contextMatches = matches.filter(m => m.score >= 0.6).slice(0, TOP_K);
+
+    // Fallback to at least one match if nothing strong was found
+    if (contextMatches.length === 0 && matches.length > 0) {
+      contextMatches = [matches[0]];
+    }
+
+    const context = truncateContext(
+      contextMatches.map(m => m.metadata?.text || '').filter(Boolean).join('\n\n'),
+      MAX_CONTEXT_TOKENS
+    );
+
     const confidenceScore = contextMatches[0]?.score ?? '';
 
     const escalationRules = `You are a friendly Blated customer service associate. Format all responses for maximum readability:
