@@ -154,6 +154,8 @@
 }
 
 .message {
+  background: #f1f2f8;
+  color: #294d51;
   margin: 10px 5px;
   padding: 12px 14px;
   border-radius: 8px;
@@ -164,8 +166,8 @@
 }
 
 .message.user {
-  background: #294d51;
-  color: white;
+  background: #294d51 !important;
+  color: white !important;
   margin-left: 18%;
   margin-bottom: 15px;
   border-bottom-right-radius: 2px;
