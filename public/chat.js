@@ -43,13 +43,6 @@
     input.value = '';
     sendButton.classList.remove('active');
 
-    // ✅ Add typing indicator
-    const typingEl = document.createElement('div');
-    typingEl.className = 'message bot typing';
-    typingEl.textContent = '...';
-    chatBody.appendChild(typingEl);
-    chatBody.scrollTop = chatBody.scrollHeight;
-
     try {
       const payload = {
         query,
@@ -64,13 +57,10 @@
       });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
-
-      typingEl.remove(); // ✅ Remove the typing bubble
       appendMessage('bot', data.answer);
       chatHistory.push({ role: 'assistant', content: data.answer });
       localStorage.setItem('chatbotHistory', JSON.stringify(chatHistory));
     } catch (error) {
-      typingEl.remove();
       appendMessage('bot', 'Sorry, something went wrong. Please try again.');
       console.error('Chat error:', error);
     }
@@ -79,7 +69,7 @@
   }
 
   function appendMessage(role, content) {
-    const message = document.createElement('div');
+    const message    = document.createElement('div');
     message.className = `message ${role}`;
     message.innerHTML = formatMessage(content);
     chatBody.appendChild(message);
@@ -87,25 +77,31 @@
 
   /* ---------- Updated Markdown-aware formatter ---------- */
   function formatMessage(content) {
+    // Basic HTML escape to prevent XSS
     const escapeHTML = (str) =>
       str.replace(/&/g, '&amp;')
          .replace(/</g, '&lt;')
          .replace(/>/g, '&gt;');
 
+    // Inline markdown (bold, italic, more later if needed)
     const renderInline = (str) => {
       let safe = escapeHTML(str);
+      // **bold**
       safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      // *italic* or _italic_
       safe = safe.replace(/(\*|_)(.+?)\1/g, '<em>$2</em>');
       return safe;
     };
 
-    const lines = content.split('\n');
-    let html = '';
-    let inList = false;
-    let listType = 'ul';
+    const lines   = content.split('\n');
+    let html      = '';
+    let inList    = false;
+    let listType  = 'ul';
 
     lines.forEach(line => {
       const trimmed = line.trim();
+
+      // Bullet or numbered list?
       if (/^[-*•]\s+/.test(trimmed) || /^\d+[\.\-]\s+/.test(trimmed)) {
         const isNumbered = /^\d+[\.\-]\s+/.test(trimmed);
         if (!inList) {
@@ -115,7 +111,9 @@
         }
         const itemContent = trimmed.replace(/^[-*•]\s+|^\d+[\.\-]\s+/, '');
         html += `<li>${renderInline(itemContent)}</li>`;
-      } else if (/^#{1,3}\s+/.test(trimmed)) {
+      }
+      // Markdown headings (#, ##, ###)
+      else if (/^#{1,3}\s+/.test(trimmed)) {
         if (inList) {
           html += `</${listType}>`;
           inList = false;
@@ -123,7 +121,9 @@
         const level = trimmed.match(/^#+/)[0].length;
         const headingContent = trimmed.replace(/^#{1,3}\s+/, '');
         html += `<h${level}>${renderInline(headingContent)}</h${level}>`;
-      } else if (trimmed) {
+      }
+      // Regular paragraph (includes inline bold/italic)
+      else if (trimmed) {
         if (inList) {
           html += `</${listType}>`;
           inList = false;
@@ -133,8 +133,11 @@
     });
 
     if (inList) html += `</${listType}>`;
+
+    // Fallback for completely empty content
     return html || `<p>${renderInline(content)}</p>`;
   }
+  /* ------------------------------------------------------ */
 
   function resetChat() {
     localStorage.removeItem('chatbotSessionId');
