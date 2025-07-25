@@ -155,22 +155,28 @@
 
 .message {
   background: #f1f2f8;
-  color: #294d51;
-  margin: 10px 5px;
+  color: #333;
+  margin-right: 18%;
+  margin-bottom: 15px;
+  margin-top: 10px;
+  margin-left: 5px;
   padding: 12px 14px;
   border-radius: 8px;
+  border-bottom-left-radius: 2px;
   font-size: 14px;
   line-height: 1.4;
-  margin-bottom: 15px;
   font-family: poppins;
 }
 
 .message.user {
   background: #294d51 !important;
   color: white !important;
-  margin-left: 18%;
-  margin-bottom: 15px;
-  border-bottom-right-radius: 2px;
+  margin-top: 10px !important;
+  margin-right: 5px !important;
+  margin-left: 18% !important;
+  margin-bottom: 15px !important;
+  border-bottom-right-radius: 0px !important;
+  border-bottom-left-radius: 8px !important;
 }
 
 .message.bot {
